@@ -284,6 +284,22 @@ class Microphone:
             self.stream.stop()
             self.stream.close()
 
+    def pause(self) -> None:
+        """Stop capturing so robot output cannot accumulate in the input buffer."""
+        if self.stream is None:
+            raise RuntimeError("Microphone is not open")
+        if self.stream.active:
+            # abort() drops pending input immediately; stop() may preserve queued
+            # frames that were captured before robot playback was disabled.
+            self.stream.abort()
+
+    def resume(self) -> None:
+        """Start a fresh capture stream after robot output has finished."""
+        if self.stream is None:
+            raise RuntimeError("Microphone is not open")
+        if not self.stream.active:
+            self.stream.start()
+
     def blocks(self) -> Iterator[bytes]:
         if self.stream is None:
             raise RuntimeError("Microphone is not open")
@@ -445,6 +461,9 @@ def main() -> int:
             silence_multiplier=float(config.get("silence_multiplier", 2.0)),
             min_silence_rms=float(config.get("min_silence_rms", 100.0)),
         )
+        output_guard_seconds = float(config.get("output_guard_seconds", 0.8))
+        if output_guard_seconds < 0:
+            raise ValueError("output_guard_seconds must be zero or greater")
         colors_config = config.get("led_colors", {})
         colors = {
             "waiting": parse_rgb(colors_config.get("waiting", [0, 0, 255]), "waiting"),
@@ -505,6 +524,10 @@ def main() -> int:
                     robot.set_state("waiting")
                     continue
 
+                # Do not leave the input stream running while the robot speaks.
+                # Otherwise its answer can remain queued in PortAudio and trigger
+                # the wake-word detector as soon as we return to the waiting loop.
+                microphone.pause()
                 try:
                     robot.set_state("processing")
                     print("[PROCESSING] Sending audio to the AI server...", flush=True)
@@ -515,6 +538,12 @@ def main() -> int:
                 except (requests.RequestException, RuntimeError, ValueError) as exc:
                     print(f"[ERROR] {exc}", file=sys.stderr)
                 finally:
+                    # Keep capture disabled briefly so speaker/reverberation tail
+                    # cannot be mistaken for a new wake word, then restart cleanly.
+                    if output_guard_seconds:
+                        time.sleep(output_guard_seconds)
+                    detector.reset()
+                    microphone.resume()
                     robot.set_state("waiting")
                     print(f"[WAITING] Say '{wake_label}'.", flush=True)
     except (RuntimeError, OSError) as exc:

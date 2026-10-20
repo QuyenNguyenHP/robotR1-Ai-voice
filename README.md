@@ -69,6 +69,9 @@ Edit `config.json` before starting the application:
 - `server`: URL of the voice AI server.
 - `api_key`: leave it as an empty string when the server does not require a key.
 - `device`: microphone exposed through PortAudio. The default is `pipewire`.
+- `output_guard_seconds`: how long the microphone remains paused after robot
+  playback ends, preventing speaker echo from retriggering the wake word. The
+  default is `0.8` seconds.
 - `led_refresh_seconds`: how often the active LED color is reapplied. Keep this
   value greater than `0.21`; the recommended value is `1.0` second.
 
