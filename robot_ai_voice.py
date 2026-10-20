@@ -77,6 +77,15 @@ def parse_rgb(value: object, name: str) -> tuple[int, int, int]:
     return rgb  # type: ignore[return-value]
 
 
+def wake_word_label(model: str) -> str:
+    """Return a readable phrase for status messages from a model name or path."""
+    name = Path(model).stem
+    base, separator, version = name.rpartition("_v")
+    if separator and version and version[0].isdigit():
+        name = base
+    return name.replace("_", " ").replace("-", " ").title()
+
+
 class RobotOutput:
     """Own the Unitree audio client and serialize LED/audio operations."""
 
@@ -454,9 +463,11 @@ def main() -> int:
             colors,
             float(config.get("led_refresh_seconds", 1.0)),
         )
-        ensure_wake_word_models(str(config.get("wake_word", "hey_jarvis")), model_dir)
+        wake_word = str(config.get("wake_word", "hey_jarvis"))
+        wake_label = wake_word_label(wake_word)
+        ensure_wake_word_models(wake_word, model_dir)
         detector = WakeWordDetector(
-            str(config.get("wake_word", "hey_jarvis")),
+            wake_word,
             model_dir,
             float(config.get("threshold", 0.5)),
         )
@@ -479,7 +490,7 @@ def main() -> int:
             blocks = microphone.blocks()
             noise = calibrate(blocks, 1.5, recording.block_samples)
             robot.set_state("waiting")
-            print("[WAITING] Ready. Say 'Jarvis' (Ctrl+C to exit).", flush=True)
+            print(f"[WAITING] Ready. Say '{wake_label}' (Ctrl+C to exit).", flush=True)
             while running:
                 found, _score = detector.detected(next(blocks))
                 if not found:
@@ -487,7 +498,7 @@ def main() -> int:
 
                 detector.reset()
                 robot.set_state("recording")
-                print("[WAKE] Jarvis detected. Ask your question.", flush=True)
+                print(f"[WAKE] {wake_label} detected. Ask your question.", flush=True)
                 audio = record_utterance(blocks, noise, recording)
                 if not audio:
                     print("[WAITING] No question was detected.", flush=True)
@@ -505,7 +516,7 @@ def main() -> int:
                     print(f"[ERROR] {exc}", file=sys.stderr)
                 finally:
                     robot.set_state("waiting")
-                    print("[WAITING] Say 'Hey Jarvis'.", flush=True)
+                    print(f"[WAITING] Say '{wake_label}'.", flush=True)
     except (RuntimeError, OSError) as exc:
         print(f"[ERROR] {exc}", file=sys.stderr)
         return 2

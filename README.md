@@ -172,6 +172,25 @@ If the application reports `paInvalidSampleRate`, do not select the physical
 ALSA USB device directly. Select it as the PipeWire default source and use
 `"device": "pipewire"` in `config.json`.
 
+### 4. Jetson systems using PulseAudio
+
+Older Jetson images commonly use PulseAudio instead of PipeWire. If `wpctl`
+is not installed and the device list contains `pulse`, set:
+
+```json
+"device": "pulse"
+```
+
+Do not select a raw USB device such as `hw:2,0` if it rejects 16 kHz with
+`paInvalidSampleRate`. The `pulse` device performs the required conversion
+from the microphone's native rate (often 48 kHz) to the application's 16 kHz.
+
+Verify the setting before starting the application:
+
+```bash
+python3 -c "import sounddevice as sd; sd.check_input_settings(device='pulse', channels=1, dtype='int16', samplerate=16000); print('pulse OK')"
+```
+
 ## Run
 
 ```bash
@@ -184,6 +203,140 @@ You can override the configured robot network interface on the command line:
 ```bash
 python3 robot_ai_voice.py enp3s0
 ```
+
+## Run automatically on a Jetson with systemd
+
+Use a systemd **user service**, not a system service, so the application can
+connect to the logged-in user's PulseAudio session. These steps assume that the
+Jetson username is `unitree` and the repository is located at
+`/home/unitree/robotR1-Ai-voice`.
+
+### 1. Verify the application manually
+
+Confirm that `config.json` uses the correct robot network interface and this
+audio setting:
+
+```json
+"device": "pulse"
+```
+
+Start the application:
+
+```bash
+cd ~/robotR1-Ai-voice
+python3 robot_ai_voice.py
+```
+
+Make sure the microphone, wake word, server connection, and robot output work.
+Then stop the application with `Ctrl+C`.
+
+### 2. Create the user-service directory
+
+```bash
+mkdir -p ~/.config/systemd/user
+```
+
+### 3. Create the service file
+
+Open a new service file:
+
+```bash
+nano ~/.config/systemd/user/robot-ai-voice.service
+```
+
+Paste the following content:
+
+```ini
+[Unit]
+Description=Robot AI Voice (Jarvis)
+After=default.target sound.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/unitree/robotR1-Ai-voice
+ExecStart=/usr/bin/python3 /home/unitree/robotR1-Ai-voice/robot_ai_voice.py
+Environment=PYTHONUNBUFFERED=1
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+```
+
+Save with `Ctrl+O`, press Enter, and exit with `Ctrl+X`.
+
+### 4. Load, enable, and start the service
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now robot-ai-voice.service
+```
+
+### 5. Check the service
+
+```bash
+systemctl --user status robot-ai-voice.service
+journalctl --user -u robot-ai-voice.service -f
+```
+
+Press `Ctrl+C` to exit the live log view. After changing `config.json` or the
+application code, restart the service:
+
+```bash
+systemctl --user restart robot-ai-voice.service
+```
+
+### 6. Enable startup without an interactive login
+
+Run this once:
+
+```bash
+sudo loginctl enable-linger unitree
+```
+
+Reboot and verify that the service started automatically:
+
+```bash
+sudo reboot
+```
+
+After reconnecting to the Jetson:
+
+```bash
+systemctl --user status robot-ai-voice.service
+```
+
+### Service management commands
+
+Stop the service:
+
+```bash
+systemctl --user stop robot-ai-voice.service
+```
+
+Start it again:
+
+```bash
+systemctl --user start robot-ai-voice.service
+```
+
+Disable automatic startup and stop it:
+
+```bash
+systemctl --user disable --now robot-ai-voice.service
+```
+
+Remove the service completely:
+
+```bash
+systemctl --user disable --now robot-ai-voice.service
+rm ~/.config/systemd/user/robot-ai-voice.service
+systemctl --user daemon-reload
+```
+
+PulseAudio availability still depends on the Jetson image and its audio-session
+configuration. If the service log says that it cannot connect to `pulse`, log
+in as `unitree`, confirm `pactl info` works, and restart the service.
 
 The server must return uncompressed PCM WAV audio. The application converts
 the response to the format required by `PlayStream`: **16 kHz, mono, signed
