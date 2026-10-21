@@ -184,6 +184,37 @@ is not installed and the device list contains `pulse`, set:
 "device": "pulse"
 ```
 
+List the PulseAudio input sources:
+
+```bash
+pactl list short sources
+```
+
+For the BY Y01 USB microphone, select this stable source name rather than its
+numeric source ID:
+
+```bash
+pactl set-default-source alsa_input.usb-BY_BY_Y01_20180508-00.analog-stereo
+```
+
+Older Jetson PulseAudio releases do not support `pactl get-default-source` and
+print `No valid command specified`. Verify the selection with this command
+instead:
+
+```bash
+pactl info | grep "Default Source"
+```
+
+The expected result for BY Y01 is:
+
+```text
+Default Source: alsa_input.usb-BY_BY_Y01_20180508-00.analog-stereo
+```
+
+PulseAudio normally remembers this selection for the `unitree` user. Confirm
+it with the same `pactl info` command after rebooting. A source shown as
+`SUSPENDED` while idle is normal; it changes to `RUNNING` while recording.
+
 Do not select a raw USB device such as `hw:2,0` if it rejects 16 kHz with
 `paInvalidSampleRate`. The `pulse` device performs the required conversion
 from the microphone's native rate (often 48 kHz) to the application's 16 kHz.
@@ -192,6 +223,13 @@ Verify the setting before starting the application:
 
 ```bash
 python3 -c "import sounddevice as sd; sd.check_input_settings(device='pulse', channels=1, dtype='int16', samplerate=16000); print('pulse OK')"
+```
+
+Make a five-second test recording and play it back:
+
+```bash
+arecord -D pulse -f S16_LE -r 16000 -c 1 -d 5 /tmp/microphone-test.wav
+aplay /tmp/microphone-test.wav
 ```
 
 ## Run
